@@ -9,46 +9,25 @@ from d2l import torch as d2l
 
 
 class Encoder(nn.Module):
-    def __init__(self, vocab_size, embed_size, hidden_size, num_layers, dropout=0):
+    """The base encoder interface for the encoder-decoder architecture."""
+    def __init__(self, **kwargs):
         super(Encoder, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_size)
-        self.rnn = nn.GRU(embed_size, hidden_size, num_layers=num_layers, dropout=dropout)
 
-    def forward(self, X):
-        X = self.embedding(X)  # [bsz, seq_len] --> [bsz, seq_len, embed_size]
-        X = X.permute(1, 0, 2)  # [seq_len, bsz, embed_size], nn.RNN's requirement, first axis is seq_len (time steps)
-        # output: [seq_len, bsz, num_directions * hidden_size], the output of the last layer of GRU
-        # state: [num_layers * num_directions, bsz, hidden_size], the output of the last time step of each layer
-        output, state = self.rnn(X)  # the state defaults to zeros
-        return output, state
+    def forward(self, X, *args):
+        raise NotImplementedError
 
 
 class Decoder(nn.Module):
-    def __init__(self, vocab_size, embed_size, hidden_size, num_layers, dropout=0):
+    """The base decoder interface for the encoder-decoder architecture."""
+    def __init__(self, **kwargs):
         super(Decoder, self).__init__()
-        self.embedding = nn.Embedding(vocab_size, embed_size)
-        # the input is embedding + encoder's output
-        self.rnn = nn.GRU(embed_size + hidden_size, hidden_size, num_layers=num_layers, dropout=0)
-        self.linear = nn.Linear(hidden_size, vocab_size)
 
-    def init_state(self):
-        pass
+    def init_state(self, enc_outputs, *args):
+        """extract required things for encoder's output to initialize decoder"""
+        raise NotImplementedError
 
     def forward(self, X, state):
-        """
-
-        :param X:
-        :param state: tensor, [num_layers * num_directions, bsz, hidden_size]
-            the last step hidden state of encoder
-        :return:
-        """
-        X = self.embedding(X).permute(1, 0, 2)  # [seq_len, bsz, embed_size]
-        context = state[-1].repeat(X.shape[0], 1, 1)  # use the last layer's hidden state
-        X = torch.cat((X, context), 2)
-        # output: [seq_len, bsz, hidden_size]
-        output, state = self.rnn(X, state)
-        output = self.linear(output).permute(1, 0, 2)
-        return output, state
+        raise NotImplementedError
 
 
 class EncoderDecoder(nn.Module):
@@ -59,22 +38,51 @@ class EncoderDecoder(nn.Module):
 
     def forward(self, enc_X, dec_X):
         enc_outputs = self.encoder(enc_X)
-        return self.decoder(dec_X, enc_outputs[1])
+        dec_state = self.decoder.init_state(enc_outputs)  # get required things to initialize decoder
+        return self.decoder(dec_X, dec_state)
 
 
-def sequence_mask(X, valid_len, mask=0):
-    """
-    mask irrelevant entries in X
-    :param X: tensor, [bsz, seq_len]
-        sequences to be masked
-    :param valid_len: [bsz]
-        valid length
-    :param mask: int, mask value
-    :return:
-    """
-    for i, l in enumerate(valid_len):
-        X[i][l:] = mask
-    return X
+class Seq2SeqEncoder(Encoder):
+    def __init__(self, vocab_size, embed_size, hidden_size, num_layers, dropout=0):
+        super(Seq2SeqEncoder, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.rnn = nn.GRU(embed_size, hidden_size, num_layers=num_layers, dropout=dropout)
+
+    def forward(self, X, *args):
+        X = self.embedding(X)  # [bsz, seq_len] --> [bsz, seq_len, embed_size]
+        X = X.permute(1, 0, 2)  # [seq_len, bsz, embed_size], nn.RNN's requirement, first axis is seq_len (time steps)
+        # output: [seq_len, bsz, num_directions * hidden_size], the output of the last layer of GRU
+        # state: [num_layers * num_directions, bsz, hidden_size], the output of the last time step of each layer
+        output, state = self.rnn(X)  # the state defaults to zeros
+        return output, state
+
+
+class Seq2SeqDecoder(Decoder):
+    def __init__(self, vocab_size, embed_size, hidden_size, num_layers, dropout=0):
+        super(Seq2SeqDecoder, self).__init__()
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        # the input is embedding + encoder's output, here encoder and decoder share same hidden_size
+        self.rnn = nn.GRU(embed_size + hidden_size, hidden_size, num_layers=num_layers, dropout=0)
+        self.linear = nn.Linear(hidden_size, vocab_size)
+
+    def init_state(self, enc_outputs, *args):
+        return enc_outputs[1]
+
+    def forward(self, X, state):
+        """
+
+        :param X:
+        :param state: the last step hidden state of encoder
+            tensor, [num_layers * num_directions, bsz, hidden_size]
+        :return:
+        """
+        X = self.embedding(X).permute(1, 0, 2)  # [seq_len, bsz, embed_size]
+        context = state[-1].repeat(X.shape[0], 1, 1)  # use the last layer's hidden state
+        X = torch.cat((X, context), 2)  # [seq_len, bsz, embed_size + hidden_size]
+        # output: [seq_len, bsz, hidden_size]
+        output, state = self.rnn(X, state)
+        output = self.linear(output).permute(1, 0, 2)
+        return output, state
 
 
 def train_seq2seq(net, data_iter, lr, num_epochs, tgt_vocab, device):
@@ -123,7 +131,7 @@ if __name__ == '__main__':
     lr, num_epochs, device = 0.005, 300, d2l.try_gpu()
 
     train_iter, src_vocab, tgt_vocab = d2l.load_data_nmt(batch_size, num_steps)
-    encoder = Encoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
-    decoder = Decoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
+    encoder = Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
+    decoder = Seq2SeqDecoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
     net = EncoderDecoder(encoder, decoder)
     train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
