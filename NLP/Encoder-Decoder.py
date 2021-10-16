@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 from d2l import torch as d2l
 
+from NLP.attention import DotProductAttention
+
 
 class Encoder(nn.Module):
     """The base encoder interface for the encoder-decoder architecture."""
@@ -85,6 +87,54 @@ class Seq2SeqDecoder(Decoder):
         return output, state
 
 
+class AttentionDecoder(Decoder):
+    """The base attention-based decoder interface"""
+    def __init__(self):
+        super(AttentionDecoder, self).__init__()
+
+    @property
+    def attention_weights(self):
+        raise NotImplementedError
+
+
+class Seq2SeqAttentionDecoder(AttentionDecoder):
+    def __init__(self, vocab_size, embed_size, hidden_size, num_layers, dropout=0):
+        super(Seq2SeqAttentionDecoder, self).__init__()
+        self.attention = DotProductAttention(dropout)
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.rnn = nn.GRU(embed_size+hidden_size, hidden_size, num_layers=num_layers, dropout=dropout)
+        self.linear = nn.Linear(hidden_size, vocab_size)
+
+    def init_state(self, enc_outputs, enc_valid_lens, *args):
+        outputs, hidden_state = enc_outputs  # hidden_state: [num_layers*num_directions, bsz, hidden_size]
+        outputs = outputs.permute(1, 0, 2)  # [seq_len, bsz, hidden_size] --> [bsz, seq_len, hidden_size]
+        return outputs, hidden_state, enc_valid_lens
+
+    def forward(self, X, state):
+        enc_outputs, hidden_state, enc_valid_lens = state
+        X = self.embedding(X).permute(1, 0, 2)  # [bsz, seq_len, embed_size] --> [seq_len, bsz, embed_size]
+        outputs, self._attention_weights = [], []
+
+        for x in X:  # x: [bsz, embed_size]
+            query = torch.unsqueeze(hidden_state[-1], dim=1)  # [bsz, 1, hidden_size]
+            kv = enc_outputs  # [bsz, seq_len, hidden_size]
+            context = self.attention(query, kv, kv, enc_valid_lens)  # [bsz, 1, hidden_size]
+
+            input = torch.cat((context, torch.unsqueeze(x, 1)), dim=2).permute(1, 0, 2)  # [1, bsz, hidden+embed]
+            # output:[1, bsz, hidden], hidden_state:[num_layers, bsz, hidden]
+            output, hidden_state = self.rnn(input, hidden_state)
+            outputs.append(output)
+            self._attention_weights.append(self.attention.attention_weights)
+
+        outputs = torch.cat(outputs, dim=0)  # [seq_len, bsz, hidden]
+        pred = self.linear(outputs).permute(1, 0, 2)  # [bsz, seq_len, vocab_size]
+        return pred, [enc_outputs, hidden_state, enc_valid_lens]
+
+    @property
+    def attention_weights(self):
+        return self._attention_weights
+
+
 def train_seq2seq(net, data_iter, lr, num_epochs, tgt_vocab, device):
     """Train a model for sequence to sequence."""
     def xavier_init_weights(m):
@@ -125,13 +175,38 @@ def train_seq2seq(net, data_iter, lr, num_epochs, tgt_vocab, device):
           f'tokens/sec on {str(device)}')
 
 
-if __name__ == '__main__':
+def train_seq2seqatten():
     embed_size, num_hiddens, num_layers, dropout = 32, 32, 2, 0.1
     batch_size, num_steps = 64, 10
-    lr, num_epochs, device = 0.005, 300, d2l.try_gpu()
+    lr, num_epochs, device = 0.005, 250, d2l.try_gpu()
 
     train_iter, src_vocab, tgt_vocab = d2l.load_data_nmt(batch_size, num_steps)
-    encoder = Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
-    decoder = Seq2SeqDecoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
-    net = EncoderDecoder(encoder, decoder)
-    train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
+    encoder = d2l.Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens,
+                                 num_layers, dropout)
+    decoder = Seq2SeqAttentionDecoder(len(tgt_vocab), embed_size, num_hiddens,
+                                      num_layers, dropout)
+    net = d2l.EncoderDecoder(encoder, decoder)
+    d2l.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
+
+
+if __name__ == '__main__':
+    # embed_size, num_hiddens, num_layers, dropout = 32, 32, 2, 0.1
+    # batch_size, num_steps = 64, 10
+    # lr, num_epochs, device = 0.005, 300, d2l.try_gpu()
+    #
+    # train_iter, src_vocab, tgt_vocab = d2l.load_data_nmt(batch_size, num_steps)
+    # encoder = Seq2SeqEncoder(len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
+    # decoder = Seq2SeqDecoder(len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
+    # net = EncoderDecoder(encoder, decoder)
+    # train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
+
+    encoder = Seq2SeqEncoder(vocab_size=10, embed_size=8, hidden_size=16,
+                                 num_layers=2)
+    encoder.eval()
+    decoder = Seq2SeqAttentionDecoder(vocab_size=10, embed_size=8, hidden_size=16,
+                                      num_layers=2)
+    decoder.eval()
+    X = torch.zeros((4, 7), dtype=torch.long)  # (`batch_size`, `num_steps`)
+    state = decoder.init_state(encoder(X), None)
+    output, state = decoder(X, state)
+    output.shape, len(state), state[0].shape, len(state[1]), state[1][0].shape

@@ -17,6 +17,7 @@ class DotProductAttention(nn.Module):
     def __init__(self, drp):
         super(DotProductAttention, self).__init__()
         self.dropout = nn.Dropout(drp)
+        self.attention_weights = 0
 
     def forward(self, queries, keys, values, valid_lens=None):
         """
@@ -28,6 +29,6 @@ class DotProductAttention(nn.Module):
         """
         d = queries.shape[-1]
         atten_scores = torch.bmm(queries, keys.transpose(1, 2)) / math.sqrt(d)  # (bsz, query_num, key-value num)
-        atten_weights = masked_softmax(atten_scores, valid_lens)
+        self.attention_weights = masked_softmax(atten_scores, valid_lens)
         # add drpout on attention weights
-        return torch.bmm(self.dropout(atten_weights), values)  # (bsz, query_num, value_dim)
+        return torch.bmm(self.dropout(self.attention_weights), values)  # (bsz, query_num, value_dim)
