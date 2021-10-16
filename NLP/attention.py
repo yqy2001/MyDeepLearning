@@ -32,3 +32,9 @@ class DotProductAttention(nn.Module):
         self.attention_weights = masked_softmax(atten_scores, valid_lens)
         # add drpout on attention weights
         return torch.bmm(self.dropout(self.attention_weights), values)  # (bsz, query_num, value_dim)
+
+
+class MultiHeadAttention(nn.Module):
+    def __init__(self):
+        super(MultiHeadAttention, self).__init__()
+        torch.nn.TransformerEncoder

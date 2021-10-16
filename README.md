@@ -10,8 +10,10 @@ Progress:
 
 - [x] Seq2Seq
 - [x] Attention
+    - [x] Scaled Dot-Product Attention
+    - [x] Multi-head self-attention, Directly Use Pytorch's Imp.
 - [x] Seq2Seq+Attention
-- [ ] Transformer
+- [x] Transformer, Directly Use Pytorch's Imp.
 - [ ] 
 
 ## Thanks for 《动手学深度学习》By 李沐！
