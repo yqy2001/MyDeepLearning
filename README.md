@@ -9,7 +9,8 @@ Code is king! Practice is king!
 Progress:
 
 - [x] Seq2Seq
-- [ ] Attention
+- [x] Attention
+- [x] Seq2Seq+Attention
 - [ ] Transformer
 - [ ] 
 
