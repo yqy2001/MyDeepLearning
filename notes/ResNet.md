@@ -1,0 +1,3 @@
+加一个恒等变换，深的网络至少不应该比浅的网络差
+
+每两层3x3conv，一个残差是BasicBlock；每三层，1x1和3x3和1x1做一个residual block是Bottleneck

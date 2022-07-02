@@ -11,11 +11,11 @@ from easydict import EasyDict
 import sys
 
 if sys.platform == "win64" or sys.platform == "win32":
-    _DATA_cifar10 = ".\data\cifar10"
-    _DATA_cifar100 = "datasets/cifar100/"
+    _DATA_cifar10 = "~/data/"
+    _DATA_cifar100 = "~/data/"
 else:
-    _DATA_cifar10 = "/home/mixiaoyue/yqy/A_adversarial_repo/datasets/cifar10/"
-    _DATA_cifar100 = "datasets/cifar100/"
+    _DATA_cifar10 = "~/data/"
+    _DATA_cifar100 = "~/data/"
 
 cifar10_mean = (0.4914, 0.4822, 0.4465)  # equals np.mean(train_set.train_data, axis=(0,1,2))/255
 cifar10_std = (0.2471, 0.2435, 0.2616)  # equals np.std(train_set.train_data, axis=(0,1,2))/255
